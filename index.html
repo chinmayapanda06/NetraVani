@@ -1,0 +1,1114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0B1214">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>NetraVani</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Devanagari:wght@500;700&display=swap">
+<style>
+/* Layout: one-screen app. Top caregiver bar, output line, gaze keypad filling the rest.
+   Deliberately dark single theme: low glare for an ICU patient at night, maximum contrast for the amber gaze highlight. */
+:root{
+  color-scheme: dark;
+  --ground:#0B1214; --panel:#111B1E; --key:#172428; --line:#22353A;
+  --ink:#EEF4F1; --muted:#8EA39F;
+  --scan:#FFC53D; --scanInk:#1B1400;
+  --yesKey:#123A2B; --yesInk:#7BE3B3;
+  --noKey:#3B1719; --noInk:#FF9C9C;
+  --alertKey:#5A1418; --alert:#E5484D;
+  --wordKey:#12283A; --wordInk:#9DD1FF;
+  --fnKey:#1E2526; --speakKey:#2C2A12; --speakInk:#FFE08A;
+  --ui:'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --deva:'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--ground);color:var(--ink);font:16px/1.4 var(--ui);overscroll-behavior:none}
+body{padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overflow:hidden}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--scan);outline-offset:2px}
+
+#app{height:100%;display:flex;flex-direction:column}
+
+/* Caregiver bar */
+.bar{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"cam ctrl" "cam sensor";align-items:center;gap:6px 10px;padding:8px max(10px,env(safe-area-inset-right,0px)) 8px max(10px,env(safe-area-inset-left,0px));background:var(--panel);border-bottom:1px solid var(--line)}
+#thumb{grid-area:cam;width:56px;height:56px;border-radius:50%;overflow:hidden;flex:none;background:#000;border:2px solid var(--line);position:relative;cursor:pointer}
+#cam{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.sensor{grid-area:sensor;min-width:0;display:grid;grid-template-columns:1fr 64px;align-items:center;gap:10px}
+#status{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#status b{color:var(--ink);font-weight:700}
+.meter{position:relative;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+#meterFill{position:absolute;inset:0 auto 0 0;width:0;background:var(--muted)}
+#meterThr{position:absolute;top:0;bottom:0;width:2px;background:var(--scan)}
+.ctrl{grid-area:ctrl;display:flex;gap:6px;min-width:0}
+.ctrl button{flex:1;min-width:0;background:var(--key);border:1px solid var(--line);border-radius:10px;padding:6px 4px;font-size:12.5px;line-height:1.1;min-height:36px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctrl button.on{background:var(--scan);color:var(--scanInk);border-color:var(--scan)}
+
+/* Output */
+.out{padding:10px 16px 6px;min-height:78px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--line)}
+#typed{font-size:clamp(22px,6.4vw,34px);font-weight:700;line-height:1.15;min-height:1.15em;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#typed .ph{color:var(--muted);font-weight:400;font-size:.62em}
+#typed .caret{display:inline-block;width:3px;height:.95em;background:var(--scan);vertical-align:-.12em;margin-left:2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+#last{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#crumb{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:6px 16px 0}
+
+/* Keypad */
+#pad{flex:1;min-height:0;display:grid;gap:8px;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));grid-auto-rows:minmax(0,1fr);padding:8px max(10px,env(safe-area-inset-left,0px)) 10px max(10px,env(safe-area-inset-right,0px))}
+.key{position:relative;min-width:0;min-height:0;border-radius:14px;background:var(--key);border:2px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 6px;text-align:center;overflow:hidden;cursor:pointer;transition:transform .12s, background-color .12s}
+.key .en{font-weight:700;font-size:clamp(19px,5.6vw,30px);line-height:1.08}
+.key .hi{font-family:var(--deva);font-weight:500;font-size:clamp(13px,3.6vw,19px);color:var(--muted);line-height:1.2}
+.key.grp .en{letter-spacing:.16em;margin-right:-.16em;white-space:nowrap;font-size:clamp(17px,5vw,28px)}
+.key.letter .en{font-size:clamp(34px,11vw,56px)}
+.key.phrase .en{font-size:clamp(15px,4.4vw,22px);font-weight:700}
+.key.phrase .hi{font-size:clamp(12px,3.4vw,17px)}
+.key.back{background:var(--fnKey)}
+.key.back .en{font-size:clamp(15px,4.2vw,20px)}
+.key.yes{background:var(--yesKey)} .key.yes .en{color:var(--yesInk)}
+.key.no{background:var(--noKey)} .key.no .en{color:var(--noInk)}
+.key.alert{background:var(--alertKey);border-color:var(--alert)}
+.key.word{background:var(--wordKey)} .key.word .en{color:var(--wordInk);text-transform:none}
+.key.fn{background:var(--fnKey)}
+.key.speak{background:var(--speakKey)} .key.speak .en{color:var(--speakInk)}
+.key.go .en::after{content:" ›";color:var(--muted)}
+.key.empty{visibility:hidden}
+.key[data-tint]{background:var(--tint)}
+.key .prog{position:absolute;left:0;bottom:0;height:9px;width:calc(var(--p,0) * 100%);background:var(--ink);opacity:.9}
+.key.on{background:var(--scan)!important;border-color:var(--scan);box-shadow:0 0 0 4px rgba(255,197,61,.35)}
+.key.on .en,.key.on .hi,.key.on .en::after{color:var(--scanInk)!important}
+.key.on .prog{background:var(--scanInk)}
+.key.rest .prog{background:var(--muted);opacity:.5}
+.key.fire{animation:fire .35s ease-out}
+@keyframes fire{0%{transform:scale(.94)}100%{transform:scale(1)}}
+
+#hint{font-size:12.5px;color:var(--muted);text-align:center;padding:0 16px 8px}
+#hint .hi{font-family:var(--deva)}
+
+/* Gaze cursor */
+#cursor{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;border:3px solid var(--scan);background:rgba(255,197,61,.14);pointer-events:none;z-index:40;will-change:transform}
+
+/* Overlays */
+.ov{position:fixed;inset:0;z-index:60;background:rgba(11,18,20,.97);display:flex;flex-direction:column;overflow:auto;padding:max(20px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px))}
+.sheet{max-width:560px;width:100%;margin:auto;display:flex;flex-direction:column;gap:16px}
+.sheet h1{font-size:34px;margin:0;line-height:1.05;letter-spacing:-.01em}
+.sheet h1 small{display:block;font-family:var(--deva);font-size:18px;color:var(--scan);font-weight:500;margin-top:6px;letter-spacing:0}
+.sheet h2{font-size:22px;margin:0}
+.sheet p{margin:0;color:var(--muted);max-width:62ch}
+.steps{margin:0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:8px}
+.steps li::marker{color:var(--scan);font-weight:700}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+.btn{border:0;border-radius:12px;padding:14px 18px;font-weight:700;font-size:16px;background:var(--key);border:1px solid var(--line);cursor:pointer;min-height:48px}
+.btn.primary{background:var(--scan);color:var(--scanInk);border-color:var(--scan)}
+.btn.danger{background:var(--alert);border-color:var(--alert);color:#fff}
+.fine{font-size:12.5px;color:var(--muted)}
+.err{color:var(--noInk);font-size:14px}
+
+/* Message card */
+#msg{align-items:center;justify-content:center;text-align:center;gap:16px;cursor:pointer}
+#msgEn{font-size:clamp(34px,10vw,64px);font-weight:700;line-height:1.08;text-wrap:balance;max-width:16ch}
+#msgHi{font-family:var(--deva);font-size:clamp(26px,7.5vw,46px);color:var(--scan);line-height:1.3;text-wrap:balance}
+#msgTime{color:var(--muted);font-size:14px}
+#msg.yes #msgEn{color:var(--yesInk)} #msg.no #msgEn{color:var(--noInk)}
+
+/* Alarm */
+#alarm{background:var(--alert);align-items:center;justify-content:center;text-align:center;gap:18px;animation:pulse 1.2s ease-in-out infinite}
+#alarm h2{font-size:clamp(34px,10vw,60px);margin:0;line-height:1.05;color:#fff}
+#alarm .hi{font-family:var(--deva);font-size:clamp(24px,7vw,40px);color:#fff}
+#alarm .btn{background:#fff;color:#5A1418;font-size:20px;padding:18px 28px}
+@keyframes pulse{50%{background:#9E1F25}}
+
+/* Calibration */
+#cal{background:#05090A;padding:0;overflow:hidden}
+#calDot{position:fixed;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:var(--scan);box-shadow:0 0 0 6px rgba(255,197,61,.18);transition:left .45s ease, top .45s ease}
+#calDot::after{content:"";position:absolute;inset:-22px;border-radius:50%;border:3px solid var(--scan);opacity:.0}
+#calDot.grow::after{animation:ring .9s ease-out forwards}
+#calDot.check{background:#9DD1FF;box-shadow:0 0 0 6px rgba(157,209,255,.2)}
+@keyframes ring{0%{transform:scale(1.8);opacity:.9}100%{transform:scale(.4);opacity:0}}
+#calText{position:fixed;left:0;right:0;top:50%;transform:translateY(60px);text-align:center;padding:0 24px;font-size:22px;font-weight:700}
+#calText .hi{display:block;font-family:var(--deva);font-weight:500;color:var(--scan);font-size:19px;margin-top:4px}
+#calPanel{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#05090A}
+.quality{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:15px}
+.quality dt{color:var(--muted)} .quality dd{margin:0;font-weight:700}
+.good{color:var(--yesInk)} .fair{color:var(--speakInk)} .poor{color:var(--noInk)}
+
+/* Positioning */
+body.positioning #thumb{position:fixed;z-index:70;left:50%;top:max(24px,env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(78vw,340px);height:min(58vw,255px);border-radius:18px;border:3px solid var(--scan)}
+#thumb .oval{display:none}
+body.positioning #thumb .oval{display:block;position:absolute;left:31%;right:31%;top:12%;bottom:8%;border:2px dashed rgba(255,197,61,.8);border-radius:50%}
+#pos{padding-top:calc(min(58vw,255px) + 48px)}
+#posMsg{font-size:22px;font-weight:700}
+
+/* Settings / log */
+.form{display:flex;flex-direction:column;gap:14px}
+.row{display:flex;flex-direction:column;gap:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.row label{font-weight:700;font-size:15px}
+.row .note{font-size:12.5px;color:var(--muted)}
+.row select{background:var(--key);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;width:100%}
+.row .rng{display:flex;align-items:center;gap:12px}
+.row input[type=range]{flex:1;accent-color:var(--scan);min-width:0}
+.row output{min-width:64px;text-align:right;font-variant-numeric:tabular-nums;color:var(--scan);font-weight:700}
+.sticky{position:sticky;top:calc(-1 * max(20px,env(safe-area-inset-top,0px)));background:var(--ground);padding:6px 0 10px;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:10px}
+#logList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+#logList li{display:grid;grid-template-columns:56px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+#logList time{color:var(--muted);font-variant-numeric:tabular-nums;font-size:14px}
+#logList .hi{font-family:var(--deva);color:var(--muted);font-size:14px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media (orientation: landscape) and (max-height:500px){ .out{min-height:56px;padding-top:6px} #typed{font-size:24px;-webkit-line-clamp:1} #hint{display:none} }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <div id="thumb" title="Camera position"><video id="cam" playsinline muted autoplay></video><div class="oval"></div></div>
+    <div class="sensor">
+      <div id="status">Camera off</div>
+      <div class="meter" title="Eye closure"><i id="meterFill"></i><b id="meterThr"></b></div>
+    </div>
+    <nav class="ctrl">
+      <button id="bPause" aria-label="Pause">Pause</button>
+      <button id="bCal" aria-label="Calibrate">Calib.</button>
+      <button id="bCentre" aria-label="Re-centre">Centre</button>
+      <button id="bLog" aria-label="Message log">Log</button>
+      <button id="bSet" aria-label="Settings">Setup</button>
+    </nav>
+  </header>
+  <section class="out" aria-live="polite">
+    <div id="typed"></div>
+    <div id="last"></div>
+  </section>
+  <div id="crumb"></div>
+  <main id="pad"></main>
+  <div id="hint"></div>
+</div>
+<div id="cursor" hidden></div>
+
+<!-- Start -->
+<div class="ov" id="start">
+  <div class="sheet">
+    <h1>NetraVani<small>नेत्रवाणी · आँखों से बात</small></h1>
+    <p>Eye-gaze keyboard for ICU patients who cannot speak or use their hands. The patient looks at a key and chooses it with a deliberate eye closure. The phone speaks the message aloud.</p>
+    <ol class="steps">
+      <li>Fix the phone on a stand 35–45 cm in front of the patient's face, screen facing the patient, at eye level.</li>
+      <li>Light the face from the front. Avoid a bright window or lamp behind the patient.</li>
+      <li>Turn the phone volume up and keep it plugged in.</li>
+      <li>Calibrate with the patient (about 30 s). Recalibrate whenever the phone or the patient's head position changes.</li>
+    </ol>
+    <div class="btns">
+      <button class="btn primary" id="bStart">Start camera</button>
+      <button class="btn" id="bSim">Test without camera</button>
+    </div>
+    <div id="startErr" class="err" hidden></div>
+    <p class="fine">Test mode: the mouse or your finger acts as the patient's gaze and holding the Space bar acts as closed eyes. NetraVani is a communication aid, not a medical device. Confirm important answers with a yes/no question.</p>
+  </div>
+</div>
+
+<!-- Positioning -->
+<div class="ov" id="pos" hidden>
+  <div class="sheet">
+    <div id="posMsg">Looking for the face…</div>
+    <p>Place the face inside the dashed oval. Keep the camera at eye level and the face evenly lit.</p>
+    <div class="btns">
+      <button class="btn primary" id="bPosCal">Calibrate now</button>
+      <button class="btn" id="bPosClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Calibration -->
+<div class="ov" id="cal" hidden>
+  <div id="calDot"></div>
+  <div id="calText"></div>
+  <div id="calPanel" hidden>
+    <div class="sheet">
+      <h2>Calibration result</h2>
+      <dl class="quality" id="calQ"></dl>
+      <p id="calAdvice"></p>
+      <div class="btns">
+        <button class="btn primary" id="bCalUse">Start typing</button>
+        <button class="btn" id="bCalRedo">Repeat calibration</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Message -->
+<div class="ov" id="msg" hidden>
+  <div id="msgEn"></div>
+  <div id="msgHi"></div>
+  <div id="msgTime"></div>
+  <p class="fine">Tap to close</p>
+</div>
+
+<!-- Alarm -->
+<div class="ov" id="alarm" hidden>
+  <h2>Patient is calling the nurse</h2>
+  <div class="hi">मरीज़ नर्स को बुला रहे हैं</div>
+  <button class="btn" id="bAck">Attended</button>
+</div>
+
+<!-- Settings -->
+<div class="ov" id="settings" hidden>
+  <div class="sheet">
+    <div class="sticky"><h2>Settings</h2><button class="btn primary" id="bSetClose">Done</button></div>
+    <div class="form" id="setForm"></div>
+  </div>
+</div>
+
+<!-- Log -->
+<div class="ov" id="log" hidden>
+  <div class="sheet">
+    <div class="sticky"><h2>Message log</h2><div class="btns"><button class="btn" id="bLogClear">Clear</button><button class="btn primary" id="bLogClose">Done</button></div></div>
+    <ul id="logList"></ul>
+  </div>
+</div>
+
+<script type="module">
+/* ============ Config ============ */
+const MP_VER = '0.10.14';
+const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/vision_bundle.mjs`;
+const WASM_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm`;
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('netravani.'+k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('netravani.'+k, JSON.stringify(v)); }catch(e){} }
+};
+
+const DEF = { ctrl:'pointer', sel:'blink', holdMs:800, restMs:5000, dwellMs:1600, scanMs:1600, sens:0.5,
+  smooth:'med', cursor:'on', eye:'both', voice:'both', rate:0.95, labels:'both', msgMs:6000, sounds:'on', stepThr:1.0 };
+let S = Object.assign({}, DEF, store.get('settings', {}));
+let CAL = store.get('cal', null);
+let LOG = store.get('log', []);
+let LEARN = store.get('learn', {});
+
+/* ============ Speech & sound ============ */
+let voices = [];
+function loadVoices(){ try{ voices = speechSynthesis.getVoices(); }catch(e){} }
+if('speechSynthesis' in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+function pickVoice(l){
+  const pref = l === 'hi' ? ['hi-IN','hi'] : ['en-IN','en-GB','en-US','en'];
+  for(const p of pref){ const v = voices.find(v => v.lang && v.lang.replace('_','-').toLowerCase().startsWith(p.toLowerCase())); if(v) return v; }
+  return null;
+}
+function speak(en, hi, force){
+  if(!('speechSynthesis' in window)) return Promise.resolve();
+  const L = force || S.voice;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  const parts = [];
+  if(L !== 'hi' && en) parts.push([en,'en']);
+  if(L !== 'en' && hi) parts.push([hi,'hi']);
+  if(!parts.length && en) parts.push([en,'en']);
+  return new Promise(res => {
+    let done = false; const fin = () => { if(!done){ done = true; res(); } };
+    parts.forEach(([t,l], i) => {
+      const u = new SpeechSynthesisUtterance(t);
+      const v = pickVoice(l); if(v) u.voice = v;
+      u.lang = l === 'hi' ? 'hi-IN' : 'en-IN'; u.rate = S.rate;
+      if(i === parts.length-1){ u.onend = fin; u.onerror = fin; }
+      speechSynthesis.speak(u);
+    });
+    setTimeout(fin, 7000);
+  });
+}
+let AC = null;
+function tone(f=880, ms=90, vol=.15, type='sine'){
+  if(!AC || S.sounds === 'off') return;
+  try{
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = vol;
+    o.connect(g); g.connect(AC.destination);
+    const t = AC.currentTime; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + ms/1000);
+    o.start(t); o.stop(t + ms/1000 + .02);
+  }catch(e){}
+}
+function loudTone(f, ms){ const s = S.sounds; S.sounds = 'on'; tone(f, ms, .5, 'square'); S.sounds = s; }
+
+/* ============ Content ============ */
+const GROUPS = ['ABCDE','FGHIJ','KLMNO','PQRST','UVWXYZ'];
+const VOCAB = ("i am in is it a the to my me please pain water want need help nurse doctor call can not no yes cold hot tube suction breathe breathing bed turn move sit up down head chest stomach back leg legs arm hand eye eyes mouth dry thirsty hungry toilet bedpan urine family wife husband son daughter mother father brother sister home where when what why how who time day today tomorrow night sleep tired scared afraid worried anxious sad okay fine better worse bad good thank thanks you sorry love light off on noise quiet alone pray god medicine injection itching itch nausea vomit dizzy hurt hurts hurting uncomfortable mask glasses phone pillow blanket wet clean wash change position left right more less stop wait now later again see talk tell understand know don't can't feel feeling choking cough phlegm lips ice tea food eat drink hear read music window open close fan blood pressure test report operation surgery wound dressing catheter needle plan discharge visit come go bring give take out with and or but for of this that here there very too much little some all have has was will be do did are he she they we us him her them your our hold keep let make think remember name number money").split(' ');
+const DEF_WORDS = ['I','need','please'];
+
+const CATS = {
+  breathing:{en:'Breathing', hi:'साँस', items:[
+    ["I can't breathe","मुझे साँस नहीं आ रही"],
+    ["I need suction","सक्शन कर दीजिए"],
+    ["Phlegm in my throat","गले में बलगम है"],
+    ["I feel like I'm choking","मेरा दम घुट रहा है"],
+    ["The tube is bothering me","नली से तकलीफ़ हो रही है"],
+    ["The mask is uncomfortable","मास्क से परेशानी है"],
+    ["Raise my head","मेरा सिर ऊँचा कर दीजिए"],
+  ]},
+  needs:{en:'I need…', hi:'मुझे चाहिए…', items:[
+    ["My mouth is dry","मुँह सूख रहा है"],
+    ["Turn me / change position","मेरी करवट बदल दीजिए"],
+    ["Bedpan / urine","पेशाब या शौच जाना है"],
+    ["Please clean me","मुझे साफ़ कर दीजिए"],
+    ["Too hot","बहुत गर्मी लग रही है"],
+    ["Too cold","बहुत ठंड लग रही है"],
+    ["My eyes are burning","मेरी आँखों में जलन है"],
+    ["I have an itch","खुजली हो रही है"],
+    ["Fix my pillow","तकिया ठीक कर दीजिए"],
+    ["Light is too bright","रोशनी बहुत तेज़ है"],
+    ["Too much noise","बहुत शोर है"],
+    ["My glasses","मेरा चश्मा दीजिए"],
+  ]},
+  feelings:{en:'I feel…', hi:'मुझे लग रहा है…', items:[
+    ["I'm scared","मुझे डर लग रहा है"],
+    ["I feel restless","मुझे घबराहट हो रही है"],
+    ["I feel like vomiting","मुझे उल्टी जैसा लग रहा है"],
+    ["I feel dizzy","मुझे चक्कर आ रहा है"],
+    ["I can't sleep","मुझे नींद नहीं आ रही"],
+    ["I'm confused","मुझे कुछ समझ नहीं आ रहा"],
+    ["I feel tired","मुझे थकान हो रही है"],
+    ["I feel sad","मन उदास है"],
+    ["I'm okay","मैं ठीक हूँ"],
+    ["I feel better","पहले से अच्छा लग रहा है"],
+  ]},
+  people:{en:'People', hi:'लोग', items:[
+    ["Call my family","मेरे परिवार को बुलाइए"],
+    ["Call the doctor","डॉक्टर को बुलाइए"],
+    ["My husband / wife","मेरे पति / पत्नी को बुलाइए"],
+    ["My children","मेरे बच्चों को बुलाइए"],
+    ["My parents","मेरे माता-पिता को बुलाइए"],
+    ["I want to pray","मुझे प्रार्थना करनी है"],
+    ["I want to be alone","मुझे थोड़ी देर अकेला छोड़ दीजिए"],
+  ]},
+  questions:{en:'Questions', hi:'सवाल', items:[
+    ["What day and time is it?","आज कौन सा दिन है? समय क्या है?"],
+    ["Where am I?","मैं कहाँ हूँ?"],
+    ["How am I doing?","मेरी हालत कैसी है?"],
+    ["What happened to me?","मुझे क्या हुआ था?"],
+    ["When will the tube come out?","नली कब निकलेगी?"],
+    ["Can I have water?","क्या मुझे पानी मिल सकता है?"],
+    ["When can my family visit?","मेरे परिवार वाले कब मिल सकते हैं?"],
+    ["Please explain slowly","धीरे-धीरे समझाइए"],
+  ]},
+};
+const PAIN_LOC = [
+  ['Head','सिर','in my head','मेरे सिर में'],
+  ['Eyes','आँखें','in my eyes','मेरी आँखों में'],
+  ['Throat / tube','गला / नली','in my throat','मेरे गले में'],
+  ['Chest','छाती','in my chest','मेरी छाती में'],
+  ['Stomach','पेट','in my stomach','मेरे पेट में'],
+  ['Back','पीठ','in my back','मेरी पीठ में'],
+  ['Arms / hands','हाथ','in my arms','मेरे हाथों में'],
+  ['Legs / feet','पैर','in my legs','मेरे पैरों में'],
+  ['Wound / operation site','घाव / ऑपरेशन की जगह','at the wound','घाव या ऑपरेशन की जगह पर'],
+  ['All over','पूरे शरीर में','all over','पूरे शरीर में'],
+];
+const PAIN_TINT = ['#173A2C','#1B3B28','#223C24','#2D3C1F','#3A3A1B','#433518','#4A2E17','#4F2716','#521F17','#541A18','#561519'];
+
+/* ============ Typing ============ */
+let text = '';
+let lastSaid = null;
+let painN = null;
+function curWord(){ const m = text.match(/([A-Za-z']*)$/); return m ? m[1] : ''; }
+function suggest(){
+  const w = curWord().toLowerCase().replace(/'/g,'');
+  const learned = Object.keys(LEARN);
+  const pool = Array.from(new Set([...learned, ...VOCAB]));
+  if(!w){
+    const top = learned.sort((a,b) => LEARN[b]-LEARN[a]).slice(0,3).map(fmtWord);
+    return Array.from(new Set([...top, ...DEF_WORDS])).slice(0,3);
+  }
+  const N = VOCAB.length;
+  const scored = pool.filter(v => v.replace(/'/g,'').startsWith(w) && v.replace(/'/g,'') !== w)
+    .map(v => [v, (LEARN[v]||0)*10 + (VOCAB.includes(v) ? (N - VOCAB.indexOf(v))/N : 0)])
+    .sort((a,b) => b[1]-a[1]).map(x => fmtWord(x[0]));
+  const out = scored.slice(0,3);
+  for(const d of DEF_WORDS){ if(out.length >= 3) break; if(!out.includes(d)) out.push(d); }
+  return out;
+}
+function fmtWord(w){ return w === 'i' ? 'I' : w; }
+function pickWord(w){ text = text.slice(0, text.length - curWord().length) + w + ' '; }
+function learn(t){ t.toLowerCase().split(/[^a-z']+/).filter(x => x.length > 1).forEach(x => LEARN[x] = (LEARN[x]||0) + 1); store.set('learn', LEARN); }
+function renderOut(){
+  const t = $('#typed');
+  if(text){ t.textContent = text.charAt(0).toUpperCase() + text.slice(1); }
+  else { t.innerHTML = '<span class="ph">Type with your eyes · आँखों से लिखें</span>'; }
+  const c = document.createElement('span'); c.className = 'caret'; t.appendChild(c);
+  $('#last').textContent = lastSaid ? 'Last said: ' + lastSaid : '';
+}
+
+/* ============ Pages ============ */
+const K = (en, hi, cls, act, extra={}) => Object.assign({en, hi, cls, act}, extra);
+let page = 'kb';
+let keys = [], keyEls = [], rects = [], padRect = null, cols = 3;
+
+function buildPage(id){
+  const back = K('Back','पीछे','back full', () => go('kb'));
+  if(id === 'kb'){
+    const sug = suggest();
+    return {title:'Keyboard', cols:3, keys:[
+      K('Yes','हाँ','yes', () => quick('Yes','हाँ','yes')),
+      K('No','नहीं','no', () => quick('No','नहीं','no')),
+      K('Call nurse','नर्स बुलाएँ','alert', alarmOn),
+      ...sug.map(w => K(w,'','word', () => { pickWord(w); go('kb'); })),
+      ...GROUPS.map(g => K(g,'','grp', () => go('g:'+g))),
+      K('Space','स्पेस','fn', () => { if(text && !text.endsWith(' ')) text += ' '; go('kb'); }),
+      K('Delete','मिटाएँ','fn', () => { text = text.slice(0,-1); go('kb'); }),
+      K('Phrases','वाक्य','go fn', () => go('phr')),
+      K('Speak','बोलें','speak', speakText),
+    ]};
+  }
+  if(id.startsWith('g:')){
+    const g = id.slice(2);
+    return {title:'Letters '+g[0]+'–'+g[g.length-1], cols:3, keys:[back, ...g.split('').map(l => K(l,'','letter', () => { text += l.toLowerCase(); go('kb'); }))]};
+  }
+  if(id === 'phr'){
+    return {title:'Phrases', cols:2, keys:[back,
+      K('Pain','दर्द','go', () => go('pain')),
+      ...Object.entries(CATS).map(([k,c]) => K(c.en, c.hi, 'go', () => go('c:'+k))),
+      K("I don't know",'पता नहीं','phrase', () => say("I don't know",'पता नहीं')),
+      K('Thank you','धन्यवाद','phrase', () => say('Thank you','धन्यवाद')),
+    ]};
+  }
+  if(id.startsWith('c:')){
+    const c = CATS[id.slice(2)];
+    return {title:c.en, cols:2, keys:[K('Back','पीछे','back full', () => go('phr')), ...c.items.map(([en,hi]) => K(en,hi,'phrase', () => say(en,hi)))]};
+  }
+  if(id === 'pain'){
+    const ks = [];
+    for(let n = 0; n <= 10; n++) ks.push(K(String(n), n === 0 ? 'कोई नहीं' : n >= 7 ? 'बहुत ज़्यादा' : n >= 4 ? 'मध्यम' : 'हल्का', 'pain', () => { painN = n; go('painloc'); }, {tint:PAIN_TINT[n]}));
+    ks.push(K('Not sure','पता नहीं','fn', () => { painN = null; go('painloc'); }));
+    return {title:'How bad is the pain? 0–10', cols:3, keys:[K('Back','पीछे','back full', () => go('phr')), ...ks]};
+  }
+  if(id === 'painloc'){
+    return {title:'Where is the pain?', cols:2, keys:[K('Back','पीछे','back full', () => go('pain')),
+      ...PAIN_LOC.map(([en,hi,enP,hiP]) => K(en,hi,'phrase', () => {
+        if(painN === 0) return say('No pain','कोई दर्द नहीं है');
+        const e = painN === null ? `I have pain ${enP}` : `Pain ${painN} out of 10, ${enP}`;
+        const h = `${hiP} दर्द है` + (painN === null ? '' : ` — ${painN}/10`);
+        say(e, h);
+      }))]};
+  }
+  return buildPage('kb');
+}
+
+function go(id){
+  page = id;
+  const P = buildPage(id);
+  keys = P.keys;
+  cols = P.cols;
+  const isLand = innerWidth > innerHeight * 1.15;
+  if(isLand) cols = Math.min(6, cols * 2);
+  const pad = $('#pad');
+  pad.style.setProperty('--cols', cols);
+  pad.innerHTML = '';
+  keyEls = [];
+  // spans: full-width keys and filling the last row
+  let colPos = 0;
+  const regular = keys.filter(k => !k.cls.includes('full')).length;
+  let regIdx = 0;
+  keys.forEach((k, i) => {
+    const b = document.createElement('button');
+    b.className = 'key ' + k.cls;
+    if(k.tint){ b.dataset.tint = '1'; b.style.setProperty('--tint', k.tint); }
+    const en = document.createElement('span'); en.className = 'en'; en.textContent = k.en; b.appendChild(en);
+    if(k.hi && S.labels !== 'en'){ const hi = document.createElement('span'); hi.className = 'hi'; hi.textContent = k.hi; b.appendChild(hi); }
+    const bar = document.createElement('i'); bar.className = 'prog'; b.appendChild(bar);
+    if(k.cls.includes('full')){ b.style.gridColumn = '1 / -1'; }
+    else {
+      regIdx++;
+      const leftover = regular % cols;
+      if(leftover && regIdx === regular){ b.style.gridColumn = `span ${cols - leftover + 1}`; }
+    }
+    b.addEventListener('mousedown', e => e.preventDefault());
+    b.addEventListener('click', () => activate(i, true));
+    pad.appendChild(b); keyEls.push(b);
+  });
+  $('#crumb').textContent = P.title;
+  hv.key = -1; hv.cand = -1; dw.key = -1; dw.lock = -1; sc.prev = -1; sc.cycles = 0; sc.last = performance.now();
+  progKey = -1;
+  renderOut();
+  measure();
+  if(S.ctrl !== 'pointer') setHover(S.ctrl === 'scan' ? 0 : centreKey());
+}
+function measure(){
+  rects = keyEls.map(e => e.getBoundingClientRect());
+  padRect = $('#pad').getBoundingClientRect();
+}
+addEventListener('resize', () => { go(page); });
+
+/* ============ Actions ============ */
+function addLog(en, hi){ LOG.unshift({t:Date.now(), en, hi:hi||''}); LOG = LOG.slice(0, 300); store.set('log', LOG); }
+function showMsg(en, hi, cls, ms){
+  $('#msgEn').textContent = en; $('#msgHi').textContent = hi || '';
+  $('#msgHi').hidden = !hi;
+  $('#msgTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const m = $('#msg'); m.className = 'ov ' + (cls||''); m.hidden = false;
+  clearTimeout(showMsg.t); showMsg.t = setTimeout(hideMsg, ms || S.msgMs);
+}
+function hideMsg(){ $('#msg').hidden = true; cool = performance.now() + 600; }
+$('#msg').addEventListener('click', hideMsg);
+function quick(en, hi, cls){ speak(en, hi); addLog(en, hi); showMsg(en, hi, cls, 2500); lastSaid = en; renderOut(); }
+function say(en, hi){ speak(en, hi); addLog(en, hi); lastSaid = en; showMsg(en, hi, '', S.msgMs); go('kb'); }
+function speakText(){
+  const t = text.trim();
+  if(!t){ tone(220, 160); return; }
+  const disp = t.charAt(0).toUpperCase() + t.slice(1);
+  speak(disp, null, 'en'); addLog(disp, ''); learn(t); lastSaid = disp; text = '';
+  showMsg(disp, '', '', S.msgMs); go('kb');
+}
+let alarmTimer = null;
+function alarmOn(){
+  $('#alarm').hidden = false; addLog('Called the nurse','नर्स को बुलाया');
+  speak('Please call the nurse','कृपया नर्स को बुलाइए');
+  let i = 0;
+  clearInterval(alarmTimer);
+  alarmTimer = setInterval(() => { loudTone(i++ % 2 ? 660 : 880, 380); }, 450);
+}
+$('#bAck').addEventListener('click', () => { clearInterval(alarmTimer); $('#alarm').hidden = true; cool = performance.now() + 800; try{ speechSynthesis.cancel(); }catch(e){} });
+
+function activate(i, byTap){
+  const k = keys[i]; if(!k) return;
+  const el = keyEls[i];
+  if(el){ el.classList.remove('fire'); void el.offsetWidth; el.classList.add('fire'); }
+  tone(1046, 70, .12);
+  cool = performance.now() + 700;
+  clearProg();
+  k.act();
+}
+
+/* ============ Gaze model ============ */
+function extract(lm, bs, W, H){
+  const P = i => [lm[i].x * W, lm[i].y * H];
+  function eye(o, inn, iris, top, bot){
+    const a = P(o), b = P(inn), c = P(iris);
+    const ax = b[0]-a[0], ay = b[1]-a[1]; const L2 = ax*ax + ay*ay || 1;
+    const rx = c[0]-a[0], ry = c[1]-a[1];
+    const T = P(top), B = P(bot);
+    return { t:(rx*ax + ry*ay)/L2, n:(-rx*ay + ry*ax)/L2, ear:Math.hypot(T[0]-B[0], T[1]-B[1]) / Math.sqrt(L2), cx:(a[0]+b[0])/2, cy:(a[1]+b[1])/2 };
+  }
+  const R = eye(33,133,468,159,145);   // patient's right eye
+  const Lf = eye(362,263,473,386,374); // patient's left eye
+  const nose = P(1);
+  const mx = (R.cx+Lf.cx)/2, my = (R.cy+Lf.cy)/2;
+  const iod = Math.hypot(R.cx-Lf.cx, R.cy-Lf.cy) || 1;
+  const g = k => bs[k] || 0;
+  let t, n, ear, bh = 0, bv = 0;
+  if(S.eye === 'right'){ t = R.t; n = R.n; ear = R.ear; }
+  else if(S.eye === 'left'){ t = Lf.t; n = Lf.n; ear = Lf.ear; }
+  else {
+    t = (R.t+Lf.t)/2; n = (R.n+Lf.n)/2; ear = (R.ear+Lf.ear)/2;
+    bh = (g('eyeLookOutLeft') - g('eyeLookInLeft')) + (g('eyeLookInRight') - g('eyeLookOutRight'));
+    bv = (g('eyeLookUpLeft') + g('eyeLookUpRight')) - (g('eyeLookDownLeft') + g('eyeLookDownRight'));
+  }
+  return { f:[t, n, bh, bv, (nose[0]-mx)/iod, (nose[1]-my)/iod, mx/W, my/H, iod/W], ear, scale:iod/W, fx:mx/W, fy:my/H };
+}
+function solve(A, b){
+  const n = b.length; const M = A.map((r,i) => [...r, b[i]]);
+  for(let c = 0; c < n; c++){
+    let p = c; for(let r = c+1; r < n; r++) if(Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    const d = M[c][c] || 1e-9;
+    for(let r = 0; r < n; r++){ if(r === c) continue; const f = M[r][c]/d; for(let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((r,i) => r[n] / (r[i] || 1e-9));
+}
+function fitModel(samples){
+  const d = samples[0].f.length;
+  const mu = Array(d).fill(0), sd = Array(d).fill(0);
+  samples.forEach(s => s.f.forEach((v,i) => mu[i] += v / samples.length));
+  samples.forEach(s => s.f.forEach((v,i) => sd[i] += (v-mu[i])**2 / samples.length));
+  for(let i = 0; i < d; i++) sd[i] = Math.sqrt(sd[i]) || 1;
+  for(let i = 0; i < d; i++) if(sd[i] < 1e-5) sd[i] = 1;
+  const Z = samples.map(s => [...s.f.map((v,i) => (v-mu[i])/sd[i]), 1]);
+  const D = d + 1, lam = 1.0;
+  const A = Array.from({length:D}, () => Array(D).fill(0)), bx = Array(D).fill(0), by = Array(D).fill(0);
+  Z.forEach((z, r) => { for(let i = 0; i < D; i++){ bx[i] += z[i]*samples[r].x; by[i] += z[i]*samples[r].y; for(let j = 0; j < D; j++) A[i][j] += z[i]*z[j]; } });
+  for(let i = 0; i < d; i++) A[i][i] += lam;
+  return { mu, sd, wx:solve(A, bx), wy:solve(A, by), ox:0, oy:0 };
+}
+function predict(m, f){
+  let x = m.wx[f.length], y = m.wy[f.length];
+  for(let i = 0; i < f.length; i++){ const z = (f[i]-m.mu[i])/m.sd[i]; x += z*m.wx[i]; y += z*m.wy[i]; }
+  return { x:x + m.ox, y:y + m.oy };
+}
+function calOK(){ return !!(CAL && CAL.model && CAL.eye === S.eye && Math.abs(innerWidth - CAL.W) < 80 && Math.abs(innerHeight - CAL.H) < 160); }
+
+/* One-euro filter for a steady but responsive cursor */
+class OneEuro{
+  constructor(){ this.x = null; this.dx = 0; this.t = 0; }
+  a(c, dt){ const r = 2*Math.PI*c*dt; return r/(r+1); }
+  filter(v, tms){
+    const p = {low:[1.6,.012], med:[.8,.006], high:[.35,.003]}[S.smooth] || [.8,.006];
+    if(this.x === null){ this.x = v; this.t = tms; return v; }
+    const dt = Math.max(1e-3, (tms - this.t)/1000); this.t = tms;
+    const dx = (v - this.x)/dt; this.dx += this.a(1, dt) * (dx - this.dx);
+    const c = p[0] + p[1]*Math.abs(this.dx);
+    this.x += this.a(c, dt) * (v - this.x); return this.x;
+  }
+  reset(){ this.x = null; }
+}
+const fX = new OneEuro(), fY = new OneEuro();
+
+/* ============ Camera & detection ============ */
+const vid = $('#cam');
+let landmarker = null, camOn = false, sim = false;
+let latest = { face:false, t:0, f:null, ear:0 };
+let collector = null;
+let simPt = null, simClosed = false;
+
+async function startCamera(){
+  const err = $('#startErr'); err.hidden = true;
+  $('#bStart').textContent = 'Starting…'; $('#bStart').disabled = true;
+  unlockAudio();
+  try{
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('This browser cannot open the camera here. Open the page over https:// in Chrome (Android) or Safari (iPhone).');
+    const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
+    vid.srcObject = stream; await vid.play().catch(()=>{});
+    $('#status').innerHTML = '<b>Loading eye tracker…</b>';
+    const V = await import(MP_URL);
+    const fileset = await V.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:MODEL_URL, delegate:d }, runningMode:'VIDEO', numFaces:1, outputFaceBlendshapes:true, minFaceDetectionConfidence:.5, minFacePresenceConfidence:.5, minTrackingConfidence:.5 });
+    try{ landmarker = await V.FaceLandmarker.createFromOptions(fileset, opts('GPU')); }
+    catch(e){ landmarker = await V.FaceLandmarker.createFromOptions(fileset, opts('CPU')); }
+    camOn = true; sim = false;
+    $('#start').hidden = true;
+    keepAwake();
+    openPositioning();
+  }catch(e){
+    err.textContent = (e && e.name === 'NotAllowedError') ? 'Camera permission was refused. Allow camera access for this site in the browser settings, then try again.' : (e.message || String(e));
+    err.hidden = false; $('#bStart').textContent = 'Start camera'; $('#bStart').disabled = false;
+  }
+}
+function startSim(){
+  unlockAudio(); sim = true; camOn = false;
+  $('#start').hidden = true; $('#thumb').style.opacity = .4;
+  go('kb');
+}
+function unlockAudio(){
+  try{ AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume(); }catch(e){}
+  try{ const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }catch(e){}
+}
+let wake = null;
+async function keepAwake(){ try{ wake = await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && (camOn||sim)) keepAwake(); });
+
+let lastVT = -1;
+function loop(){
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  if(landmarker && vid.readyState >= 2 && vid.currentTime !== lastVT){
+    lastVT = vid.currentTime;
+    let r = null; try{ r = landmarker.detectForVideo(vid, now); }catch(e){}
+    const lm = r && r.faceLandmarks && r.faceLandmarks[0];
+    if(lm && lm.length >= 478){
+      const bs = {}; const cats = (r.faceBlendshapes && r.faceBlendshapes[0] && r.faceBlendshapes[0].categories) || [];
+      for(const c of cats) bs[c.categoryName] = c.score;
+      const x = extract(lm, bs, vid.videoWidth || 640, vid.videoHeight || 480);
+      latest = Object.assign({ face:true, t:now }, x);
+      if(collector) collector.push(x);
+    } else if(now - latest.t > 400){ latest.face = false; }
+  }
+  tick(now);
+}
+requestAnimationFrame(loop);
+
+/* ============ Interaction state ============ */
+const hv = { key:-1, cand:-1, since:0, hist:[] };
+const bl = { on:false, start:0, target:-1, cued:false };
+const dw = { key:-1, start:0, lock:-1 };
+const sc = { last:0, prev:-1, cycles:0 };
+const st = { dir:null, since:0, last:0, armed:true };
+let cool = 0, paused = false, progKey = -1;
+let gaze = { x:innerWidth/2, y:innerHeight/2, valid:false };
+
+function overlayOpen(){ return ['#start','#pos','#cal','#msg','#alarm','#settings','#log'].some(s => !$(s).hidden); }
+function closedNorm(){
+  if(simClosed) return 1;
+  if(sim || !latest.face) return 0;
+  const o = CAL ? CAL.open : .27, c = CAL ? CAL.closed : .07;
+  return clamp((o - latest.ear) / Math.max(.02, o - c), 0, 1.3);
+}
+function setHover(k){
+  if(k === hv.key) return;
+  if(hv.key >= 0 && keyEls[hv.key]) keyEls[hv.key].classList.remove('on');
+  hv.key = k;
+  if(k >= 0 && keyEls[k]) keyEls[k].classList.add('on');
+}
+function keyNear(x, y){
+  if(!padRect || !rects.length) return -1;
+  const m = 14;
+  if(x < padRect.left - m || x > padRect.right + m || y < padRect.top - m || y > padRect.bottom + m) return -1;
+  let best = -1, bd = Infinity;
+  rects.forEach((r, i) => {
+    if(keyEls[i].classList.contains('empty')) return;
+    const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+    const d = dx*dx + dy*dy; if(d < bd){ bd = d; best = i; }
+  });
+  return best;
+}
+function centreKey(){
+  if(!padRect) measure();
+  if(!padRect) return 0;
+  const cx = padRect.left + padRect.width/2, cy = padRect.top + padRect.height/2;
+  let best = 0, bd = Infinity;
+  rects.forEach((r, i) => { const d = (r.left + r.width/2 - cx)**2 + (r.top + r.height/2 - cy)**2; if(d < bd){ bd = d; best = i; } });
+  return best;
+}
+function neighbour(k, dir){
+  const r = rects[k]; if(!r) return k;
+  const cx = r.left + r.width/2, cy = r.top + r.height/2;
+  let best = k, bs = Infinity;
+  rects.forEach((q, i) => {
+    if(i === k) return;
+    const qx = q.left + q.width/2, qy = q.top + q.height/2;
+    const dx = qx - cx, dy = qy - cy;
+    let pri, sec;
+    if(dir === 'R'){ pri = dx; sec = dy; } else if(dir === 'L'){ pri = -dx; sec = dy; }
+    else if(dir === 'D'){ pri = dy; sec = dx; } else { pri = -dy; sec = dx; }
+    if(pri <= 4) return;
+    const s = pri + 2*Math.abs(sec); if(s < bs){ bs = s; best = i; }
+  });
+  return best;
+}
+function targetAt(t){ let k = hv.key; for(let i = hv.hist.length-1; i >= 0; i--){ if(hv.hist[i].t <= t){ k = hv.hist[i].k; break; } } return k; }
+function showProg(k, p, rest){
+  if(progKey !== k) clearProg();
+  progKey = k; const el = keyEls[k]; if(!el) return;
+  el.style.setProperty('--p', clamp(p,0,1)); el.classList.toggle('rest', !!rest);
+}
+function clearProg(){ if(progKey >= 0 && keyEls[progKey]){ keyEls[progKey].style.setProperty('--p', 0); keyEls[progKey].classList.remove('rest'); } progKey = -1; }
+
+let statusT = 0;
+function tick(now){
+  if(now - statusT > 200){ statusT = now; updateStatus(); }
+  const n = closedNorm();
+  $('#meterFill').style.width = (clamp(n,0,1)*100) + '%';
+  $('#meterFill').style.background = n > S.sens ? 'var(--scan)' : 'var(--muted)';
+  if(document.body.classList.contains('positioning')) updatePositioning();
+  const cur = $('#cursor');
+  if(overlayOpen() || paused || (!camOn && !sim)){ cur.hidden = true; if(bl.on){ bl.on = false; clearProg(); } return; }
+
+  const shut = n > S.sens, lidLow = n > .35;
+  // gaze point
+  if(S.ctrl !== 'scan'){
+    if(sim){
+      if(simPt){ gaze = { x:simPt.x, y:simPt.y, valid:true }; }
+    } else if(latest.face && calOK()){
+      if(!lidLow){ const p = predict(CAL.model, latest.f); gaze = { x:fX.filter(p.x, now), y:fY.filter(p.y, now), valid:true }; }
+    } else gaze.valid = false;
+  }
+  // hover
+  if(S.ctrl === 'pointer'){
+    const c = gaze.valid ? keyNear(gaze.x, gaze.y) : -1;
+    if(c !== hv.cand){ hv.cand = c; hv.since = now; }
+    if(c !== hv.key && now - hv.since >= 130 && !bl.on) setHover(c);
+  } else if(S.ctrl === 'steps'){
+    if(hv.key < 0) setHover(centreKey());
+    if(gaze.valid && !bl.on){
+      const dx = (gaze.x - innerWidth/2)/(innerWidth/2), dy = (gaze.y - innerHeight/2)/(innerHeight/2);
+      const T = S.stepThr;
+      let dir = null;
+      if(Math.abs(dx) >= Math.abs(dy)){ if(dx > T) dir = 'R'; else if(dx < -T) dir = 'L'; }
+      else { if(dy > T) dir = 'D'; else if(dy < -T) dir = 'U'; }
+      if(dir){
+        if(st.dir !== dir){ st.dir = dir; st.since = now; }
+        if(now - st.since >= 350 && (st.armed || now - st.last >= 900)){ setHover(neighbour(hv.key, dir)); st.last = now; st.armed = false; tone(660, 50, .08); }
+      } else { st.dir = null; if(Math.hypot(dx, dy) < T*.6) st.armed = true; }
+    }
+  } else { // scan
+    const faceOK = sim || latest.face;
+    if(hv.key < 0) setHover(0);
+    if(!bl.on && faceOK && now - sc.last >= S.scanMs && now >= cool){
+      sc.prev = hv.key; let k = hv.key + 1;
+      if(k >= keyEls.length){ k = 0; sc.cycles++; if(page !== 'kb' && sc.cycles >= 3){ go('kb'); return; } }
+      setHover(k); sc.last = now; tone(520, 30, .05);
+    }
+  }
+  hv.hist.push({ t:now, k:hv.key }); while(hv.hist.length && now - hv.hist[0].t > 1500) hv.hist.shift();
+
+  // long blink: close ≥ hold, then open; longer than rest = resting, no selection
+  const useBlink = S.ctrl === 'scan' || S.sel !== 'dwell';
+  if(shut){
+    if(!bl.on){
+      bl.on = true; bl.start = now; bl.cued = false;
+      bl.target = S.ctrl === 'scan' ? ((now - sc.last < 300 && sc.prev >= 0) ? sc.prev : hv.key) : targetAt(now - 180);
+      if(bl.target >= 0 && bl.target !== hv.key) setHover(bl.target);
+    }
+    const d = now - bl.start;
+    if(useBlink && bl.target >= 0 && now >= cool){
+      if(d > S.restMs) showProg(bl.target, 1, true);
+      else {
+        showProg(bl.target, d / S.holdMs, false);
+        if(d >= S.holdMs && !bl.cued){ bl.cued = true; tone(784, 120, .12); }
+      }
+    }
+  } else if(bl.on){
+    const d = now - bl.start; bl.on = false; clearProg();
+    if(useBlink && bl.target >= 0 && d >= S.holdMs && d <= S.restMs && bl.start >= cool){ activate(bl.target); return; }
+    sc.last = now;
+  }
+
+  // dwell
+  const useDwell = S.ctrl !== 'scan' && S.sel !== 'blink';
+  if(useDwell && !bl.on && !lidLow && hv.key >= 0){
+    if(dw.key !== hv.key){ dw.key = hv.key; dw.start = now; if(dw.lock !== hv.key) dw.lock = -1; }
+    if(dw.lock === hv.key || now < cool){ dw.start = now; }
+    else {
+      const p = (now - dw.start) / S.dwellMs; showProg(hv.key, p, false);
+      if(p >= 1){ dw.lock = hv.key; activate(hv.key); return; }
+    }
+  } else if(useDwell && hv.key < 0){ dw.key = -1; dw.lock = -1; if(!bl.on) clearProg(); }
+
+  // cursor
+  if(S.ctrl === 'pointer' && S.cursor === 'on' && gaze.valid){
+    cur.hidden = false;
+    cur.style.transform = `translate(${clamp(gaze.x, 0, innerWidth)}px, ${clamp(gaze.y, 0, innerHeight)}px)`;
+  } else cur.hidden = true;
+}
+
+function updateStatus(){
+  const s = $('#status');
+  $('#meterThr').style.left = (S.sens*100) + '%';
+  let msg;
+  if(sim) msg = '<b>Test mode</b> · pointer = gaze · hold Space = eyes closed';
+  else if(!camOn) msg = 'Camera off';
+  else if(!landmarker) msg = '<b>Loading eye tracker…</b>';
+  else if(!latest.face) msg = '<b>Face not found</b> · check position and light';
+  else if(S.ctrl !== 'scan' && !calOK()) msg = '<b>Calibrate first</b> · tap Calibrate';
+  else if(bl.on && performance.now() - bl.start > S.restMs) msg = '<b>Resting</b> · eyes closed';
+  else if(paused) msg = '<b>Paused</b>';
+  else {
+    const mode = {pointer:'Gaze pointer', steps:'Gaze steps', scan:'Auto-scan'}[S.ctrl];
+    const q = CAL && CAL.err != null && S.ctrl !== 'scan' ? ` · accuracy ${qualityWord(CAL.errRel)}` : '';
+    msg = `<b>Tracking</b> · ${mode}${q}`;
+  }
+  s.innerHTML = msg;
+  $('#bPause').classList.toggle('on', paused);
+  $('#bPause').textContent = paused ? 'Resume' : 'Pause';
+}
+function renderHint(){
+  const sel = S.ctrl === 'scan' ? 'blink' : S.sel;
+  const en = { pointer:'Look at a key.', steps:'Look past an edge of the phone to move one key.', scan:'Wait for the key to light up.' }[S.ctrl];
+  const hi = { pointer:'बटन को देखें।', steps:'एक बटन खिसकाने के लिए फ़ोन के किनारे से बाहर देखें।', scan:'बटन के चमकने का इंतज़ार करें।' }[S.ctrl];
+  const enS = sel === 'dwell' ? ' Keep looking to choose.' : sel === 'both' ? ' Keep looking, or close your eyes for 1 second and open them, to choose.' : ' Close your eyes for 1 second, then open them, to choose.';
+  const hiS = sel === 'dwell' ? ' चुनने के लिए देखते रहें।' : ' चुनने के लिए आँखें 1 सेकंड बंद करके खोलें।';
+  $('#hint').innerHTML = `${en}${enS} <span class="hi">${hi}${hiS}</span>`;
+}
+
+/* ============ Positioning ============ */
+function openPositioning(){ document.body.classList.add('positioning'); $('#pos').hidden = false; }
+function closePositioning(){ document.body.classList.remove('positioning'); $('#pos').hidden = true; }
+function updatePositioning(){
+  const m = $('#posMsg');
+  if(!landmarker){ m.textContent = 'Loading eye tracker…'; return; }
+  if(!latest.face){ m.textContent = 'Face not found. Check the angle and lighting.'; m.style.color = 'var(--noInk)'; return; }
+  let t = 'Position is good.', c = 'var(--yesInk)';
+  if(latest.scale < .085){ t = 'Move the phone closer to the face.'; c = 'var(--speakInk)'; }
+  else if(latest.scale > .24){ t = 'Move the phone a little farther away.'; c = 'var(--speakInk)'; }
+  else if(latest.fx < .3 || latest.fx > .7 || latest.fy < .22 || latest.fy > .68){ t = 'Centre the face in the oval.'; c = 'var(--speakInk)'; }
+  m.textContent = t; m.style.color = c;
+}
+$('#thumb').addEventListener('click', () => { if(camOn) openPositioning(); });
+$('#bPosClose').addEventListener('click', () => { closePositioning(); go(page); });
+$('#bPosCal').addEventListener('click', () => { closePositioning(); calibrate(); });
+
+/* ============ Calibration ============ */
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function median(a){ if(!a.length) return NaN; const s = [...a].sort((x,y) => x-y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m-1]+s[m])/2; }
+function qualityWord(r){ return r < .12 ? 'good' : r < .2 ? 'fair' : 'poor'; }
+function dotAt(x, y, cls){ const d = $('#calDot'); d.className = cls || ''; d.style.left = x + 'px'; d.style.top = y + 'px'; d.hidden = false; }
+function calText(en, hi){ $('#calText').innerHTML = en ? `${en}<span class="hi">${hi||''}</span>` : ''; }
+async function collect(ms){ const arr = []; collector = arr; await wait(ms); collector = null; return arr.filter(s => s && s.f); }
+
+let calBusy = false;
+async function calibrate(){
+  if(sim){ showMsg('Calibration needs the camera', 'कैलिब्रेशन के लिए कैमरा चाहिए', '', 2500); return; }
+  if(!camOn || !landmarker || calBusy) return;
+  calBusy = true;
+  const ov = $('#cal'); ov.hidden = false; $('#calPanel').hidden = true;
+  const W = innerWidth, H = innerHeight;
+  dotAt(W/2, H/2);
+  calText('Look at the yellow dot and follow it with your eyes', 'पीले बिंदु को देखें और आँखों से उसका पीछा करें');
+  await speak('Look at the yellow dot and follow it with your eyes', 'पीले बिंदु को देखें और आँखों से उसका पीछा करें');
+  await wait(400);
+  calText('');
+  const xs = [.1,.5,.9], ys = [.12,.5,.88];
+  const order = [[1,1],[0,0],[1,0],[2,0],[2,1],[2,2],[1,2],[0,2],[0,1]];
+  const samples = [], perPoint = [], ears = [];
+  let missed = 0;
+  for(const [i,j] of order){
+    const x = W*xs[i], y = H*ys[j];
+    dotAt(x, y); await wait(500);
+    dotAt(x, y, 'grow'); tone(880, 60, .08);
+    await wait(650);
+    const got = await collect(1100);
+    if(got.length < 6) missed++;
+    perPoint.push({ x, y, s:got });
+    got.forEach(g => ears.push(g.ear));
+  }
+  // drop frames caught mid-blink before fitting
+  const earMed = median(ears);
+  perPoint.forEach(p => p.s.filter(g => g.ear > earMed * .7).forEach(g => samples.push({ f:g.f, x:p.x, y:p.y })));
+  // closed eyes
+  $('#calDot').hidden = true;
+  calText('Now close your eyes', 'अब आँखें बंद करें');
+  await speak('Now close your eyes', 'अब आँखें बंद करें');
+  await wait(900);
+  const closed = (await collect(1500)).map(g => g.ear);
+  calText('Open your eyes', 'आँखें खोलें');
+  speak('Open your eyes', 'आँखें खोलें'); tone(784, 120, .1);
+  await wait(1300);
+
+  if(samples.length < 40 || missed > 3){
+    calBusy = false;
+    calResult(null, `The face was not seen at ${missed} of 9 points. Check the phone position and lighting, then repeat.`);
+    return;
+  }
+  const openEar = earMed, closedEar = closed.length ? median(closed) : openEar * .3;
+  const model = fitModel(samples);
+
+  // validation: 3 fresh points the model has not seen
+  calText('One more check: follow the blue dot', 'एक बार और: नीले बिंदु को देखें');
+  await speak('Follow the blue dot', 'नीले बिंदु को देखें');
+  calText('');
+  const vpts = [[.3,.3],[.72,.55],[.42,.8]];
+  const errs = [];
+  for(const [a,b] of vpts){
+    const x = W*a, y = H*b;
+    dotAt(x, y, 'check'); await wait(500);
+    dotAt(x, y, 'check grow'); await wait(600);
+    const got = (await collect(900)).filter(g => g.ear > openEar*.6);
+    if(got.length < 4) continue;
+    const ps = got.map(g => predict(model, g.f));
+    const mx = median(ps.map(p => p.x)), my = median(ps.map(p => p.y));
+    errs.push(Math.hypot(mx - x, my - y));
+  }
+  $('#calDot').hidden = true;
+  const err = errs.length ? errs.reduce((a,b) => a+b, 0) / errs.length : null;
+  const errRel = err != null ? err / Math.min(W, H) : null;
+  CAL = { model, open:openEar, closed:closedEar, eye:S.eye, W, H, err, errRel, at:Date.now() };
+  store.set('cal', CAL);
+  fX.reset(); fY.reset();
+  calBusy = false;
+  calResult(CAL);
+}
+function calResult(c, failMsg){
+  $('#calText').innerHTML = '';
+  $('#calPanel').hidden = false;
+  const q = $('#calQ'), adv = $('#calAdvice');
+  if(!c){ q.innerHTML = ''; adv.textContent = failMsg; $('#bCalUse').textContent = 'Close'; return; }
+  $('#bCalUse').textContent = 'Start typing';
+  const blinkGap = (c.open - c.closed) / c.open;
+  const bq = blinkGap > .45 ? ['good','Good'] : blinkGap > .25 ? ['fair','Weak'] : ['poor','Very weak'];
+  const gw = c.errRel == null ? ['poor','Not measured'] : [qualityWord(c.errRel), `${Math.round(c.errRel*100)}% of screen width`];
+  q.innerHTML = `<dt>Gaze error</dt><dd class="${gw[0]}">${gw[1]}</dd><dt>Eye closure signal</dt><dd class="${bq[0]}">${bq[1]}</dd><dt>Eye tracked</dt><dd>${{both:'Both eyes', right:"Patient's right eye", left:"Patient's left eye"}[c.eye]}</dd>`;
+  const tips = [];
+  if(gw[0] === 'good') tips.push('Gaze pointer should land reliably on these keys.');
+  else if(gw[0] === 'fair') tips.push('Gaze pointer will work but may jump between neighbouring keys. Try High smoothing, or switch to Gaze steps.');
+  else tips.push('Gaze is not precise enough for the pointer. Use Gaze steps or Auto-scan (blink only) in Settings, or improve lighting and repeat.');
+  if(bq[0] === 'poor') tips.push('Eye closure barely registers. Lower the blink sensitivity, track only the better-closing eye, or use Dwell selection.');
+  adv.textContent = tips.join(' ');
+}
+$('#bCalUse').addEventListener('click', () => { $('#cal').hidden = true; cool = performance.now() + 800; go('kb'); });
+$('#bCalRedo').addEventListener('click', () => { $('#calPanel').hidden = true; calibrate(); });
+
+async function recentre(){
+  if(!calOK() || !camOn || calBusy) return;
+  calBusy = true;
+  const ov = $('#cal'); ov.hidden = false; $('#calPanel').hidden = true;
+  const x = innerWidth/2, y = innerHeight/2;
+  dotAt(x, y); calText('Look at the dot', 'बिंदु को देखें');
+  speak('Look at the dot', 'बिंदु को देखें');
+  await wait(1200); dotAt(x, y, 'grow'); calText('');
+  const got = (await collect(1300)).filter(g => g.ear > CAL.open*.6);
+  if(got.length >= 5){
+    const ps = got.map(g => predict(CAL.model, g.f));
+    CAL.model.ox += x - median(ps.map(p => p.x));
+    CAL.model.oy += y - median(ps.map(p => p.y));
+    store.set('cal', CAL); fX.reset(); fY.reset();
+  }
+  ov.hidden = true; calBusy = false; cool = performance.now() + 600;
+}
+
+/* ============ Settings ============ */
+const SDEF = [
+  {k:'ctrl', label:'How the patient moves between keys', type:'sel', opts:[['pointer','Gaze pointer — highlight follows the eyes'],['steps','Gaze steps — look past an edge to move one key'],['scan','Auto-scan — keys light up in turn (blink only)']]},
+  {k:'sel', label:'How a key is chosen', type:'sel', opts:[['blink','Long blink — close eyes, then open'],['dwell','Dwell — keep looking at the key'],['both','Either long blink or dwell']], note:'Long blink is safest: a patient who just rests their eyes on a key does not type anything.'},
+  {k:'holdMs', label:'Long-blink length', type:'rng', min:400, max:2000, step:100, fmt:v => (v/1000).toFixed(1)+' s'},
+  {k:'restMs', label:'Eyes closed longer than this count as resting (nothing is chosen)', type:'rng', min:2500, max:10000, step:500, fmt:v => (v/1000).toFixed(1)+' s'},
+  {k:'dwellMs', label:'Dwell time', type:'rng', min:800, max:3500, step:100, fmt:v => (v/1000).toFixed(1)+' s'},
+  {k:'scanMs', label:'Auto-scan speed (per key)', type:'rng', min:700, max:4000, step:100, fmt:v => (v/1000).toFixed(1)+' s'},
+  {k:'stepThr', label:'Gaze steps: how far past centre to look', type:'rng', min:.5, max:1.5, step:.05, fmt:v => Math.round(v*100)+'%', note:'100% = the edge of the screen.'},
+  {k:'sens', label:'Blink sensitivity: closure needed', type:'rng', min:.3, max:.85, step:.05, fmt:v => Math.round(v*100)+'%', note:'Lower it for ptosis or partial lid closure; raise it if normal blinks are being counted.'},
+  {k:'smooth', label:'Cursor smoothing', type:'sel', opts:[['low','Low — fast, more jitter'],['med','Medium'],['high','High — steady, slower']]},
+  {k:'cursor', label:'Show gaze cursor', type:'sel', opts:[['on','On'],['off','Off — highlight only']]},
+  {k:'eye', label:'Eye to track', type:'sel', opts:[['both','Both eyes'],['right',"Patient's right eye only"],['left',"Patient's left eye only"]], note:'Use one eye when the other is patched, swollen or cannot close. Recalibrate after changing.'},
+  {k:'voice', label:'Spoken language for phrases', type:'sel', opts:[['both','English, then Hindi'],['en','English'],['hi','Hindi']], note:'Typed sentences are always read in English.'},
+  {k:'rate', label:'Speech rate', type:'rng', min:.6, max:1.3, step:.05, fmt:v => v.toFixed(2)+'×'},
+  {k:'labels', label:'Key labels', type:'sel', opts:[['both','English + Hindi'],['en','English only']]},
+  {k:'msgMs', label:'Show spoken message for', type:'rng', min:2000, max:12000, step:1000, fmt:v => (v/1000)+' s'},
+  {k:'sounds', label:'Feedback sounds', type:'sel', opts:[['on','On'],['off','Off']]},
+];
+function renderSettings(){
+  const f = $('#setForm'); f.innerHTML = '';
+  SDEF.forEach(d => {
+    const row = document.createElement('div'); row.className = 'row';
+    const id = 'set_' + d.k;
+    let html = `<label for="${id}">${d.label}</label>`;
+    if(d.type === 'sel') html += `<select id="${id}">${d.opts.map(([v,l]) => `<option value="${v}" ${S[d.k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    else html += `<div class="rng"><input type="range" id="${id}" min="${d.min}" max="${d.max}" step="${d.step}" value="${S[d.k]}"><output id="${id}_o">${d.fmt(S[d.k])}</output></div>`;
+    if(d.note) html += `<div class="note">${d.note}</div>`;
+    row.innerHTML = html; f.appendChild(row);
+    const el = row.querySelector('#'+id);
+    el.addEventListener('input', () => {
+      S[d.k] = d.type === 'rng' ? parseFloat(el.value) : el.value;
+      if(d.type === 'rng') row.querySelector('output').textContent = d.fmt(S[d.k]);
+      store.set('settings', S);
+    });
+  });
+  const row = document.createElement('div'); row.className = 'row';
+  row.innerHTML = `<label>Reset</label><div class="btns"><button class="btn" id="bReset">Restore default settings</button><button class="btn" id="bForget">Forget learned words</button></div>`;
+  f.appendChild(row);
+  row.querySelector('#bReset').addEventListener('click', () => { S = Object.assign({}, DEF); store.set('settings', S); renderSettings(); });
+  row.querySelector('#bForget').addEventListener('click', e => { LEARN = {}; store.set('learn', LEARN); e.target.textContent = 'Learned words cleared'; });
+}
+$('#bSet').addEventListener('click', () => { renderSettings(); $('#settings').hidden = false; });
+$('#bSetClose').addEventListener('click', () => { $('#settings').hidden = true; renderHint(); go(page === 'kb' ? 'kb' : page); cool = performance.now() + 600; });
+
+/* ============ Log ============ */
+function renderLog(){
+  const ul = $('#logList'); ul.innerHTML = '';
+  if(!LOG.length){ ul.innerHTML = '<li><time></time><div>No messages yet.</div></li>'; return; }
+  LOG.forEach(e => {
+    const li = document.createElement('li');
+    const d = new Date(e.t);
+    const tm = document.createElement('time'); tm.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    tm.title = d.toLocaleString();
+    const div = document.createElement('div'); div.textContent = e.en;
+    if(e.hi){ const h = document.createElement('div'); h.className = 'hi'; h.textContent = e.hi; div.appendChild(h); }
+    li.append(tm, div); ul.appendChild(li);
+  });
+}
+let clearArm = false;
+$('#bLog').addEventListener('click', () => { renderLog(); clearArm = false; $('#bLogClear').textContent = 'Clear'; $('#log').hidden = false; });
+$('#bLogClose').addEventListener('click', () => { $('#log').hidden = true; cool = performance.now() + 600; });
+$('#bLogClear').addEventListener('click', e => {
+  if(!clearArm){ clearArm = true; e.target.textContent = 'Tap again to clear'; return; }
+  LOG = []; store.set('log', LOG); renderLog(); clearArm = false; e.target.textContent = 'Clear';
+});
+
+/* ============ Controls ============ */
+$('#bStart').addEventListener('click', startCamera);
+$('#bSim').addEventListener('click', startSim);
+$('#bPause').addEventListener('click', () => { paused = !paused; clearProg(); updateStatus(); });
+$('#bCal').addEventListener('click', calibrate);
+$('#bCentre').addEventListener('click', () => { if(calOK()) recentre(); else calibrate(); });
+addEventListener('pointermove', e => { if(sim) simPt = { x:e.clientX, y:e.clientY }; });
+addEventListener('keydown', e => { if(e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'SELECT'){ simClosed = true; e.preventDefault(); } });
+addEventListener('keyup', e => { if(e.code === 'Space'){ simClosed = false; e.preventDefault(); } });
+
+renderHint();
+go('kb');
+</script>
+</body>
+</html>
